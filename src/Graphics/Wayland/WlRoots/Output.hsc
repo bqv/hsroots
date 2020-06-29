@@ -9,7 +9,7 @@ module Graphics.Wayland.WlRoots.Output
     , isOutputEnabled
     , makeOutputCurrent
     , swapOutputBuffers
-    , getOutputPosition
+--  , getOutputPosition
 
     , effectiveResolution
     , destroyOutput
@@ -42,7 +42,6 @@ module Graphics.Wayland.WlRoots.Output
     , getSerial
 
     , getOutputNeedsSwap
-    , setOutputNeedsSwap
 
     , destroyOutputGlobal
     , createOutputGlobal
@@ -104,11 +103,13 @@ getModel = fmap (makeMaybe . E.decodeUtf8) . unsafePackCString . #{ptr struct wl
 getSerial :: Ptr WlrOutput -> IO (Maybe Text)
 getSerial = fmap (makeMaybe . E.decodeUtf8) . unsafePackCString . #{ptr struct wlr_output, serial}
 
+{-
 getOutputPosition :: Ptr WlrOutput -> IO Point
 getOutputPosition ptr = do
     x :: Int32 <- #{peek struct wlr_output, lx} ptr
     y :: Int32 <- #{peek struct wlr_output, ly} ptr
     pure $ Point (fromIntegral x) (fromIntegral y)
+-}
 
 foreign import ccall unsafe "wlr_output_enable" c_output_enable :: Ptr WlrOutput -> Bool -> IO ()
 
@@ -177,8 +178,7 @@ getOutputTransform ptr = do
     pure $ OutputTransform (fromIntegral val)
 
 data OutputMode = OutputMode
-    { modeFlags   :: Word32
-    , modeWidth   :: Word32
+    { modeWidth   :: Word32
     , modeHeight  :: Word32
     , modeRefresh :: Word32
     }
@@ -188,8 +188,7 @@ instance Storable OutputMode where
     alignment _ = #{alignment struct wlr_output_mode}
     sizeOf _ = #{size struct wlr_output_mode}
     peek ptr = OutputMode
-        <$> #{peek struct wlr_output_mode, flags} ptr
-        <*> #{peek struct wlr_output_mode, width} ptr
+        <$> #{peek struct wlr_output_mode, width} ptr
         <*> #{peek struct wlr_output_mode, height} ptr
         <*> #{peek struct wlr_output_mode, refresh} ptr
     poke = error "We do not poke output modes"
@@ -197,7 +196,7 @@ instance Storable OutputMode where
 foreign import ccall "wlr_output_set_mode" c_set_mode :: Ptr WlrOutput -> Ptr OutputMode -> IO Bool
 
 setOutputMode :: Ptr OutputMode -> Ptr WlrOutput -> IO ()
-setOutputMode mptr ptr = 
+setOutputMode mptr ptr =
     throwErrnoIf_ not "setOutputMode" $ c_set_mode ptr mptr
 
 
@@ -223,26 +222,36 @@ getMode ptr = do
         else pure $ Just ret
 
 getTransMatrix :: Ptr WlrOutput -> Matrix
-getTransMatrix = 
+getTransMatrix =
     Matrix . #{ptr struct wlr_output, transform_matrix}
 
 data OutputSignals = OutputSignals
     { outSignalFrame :: Ptr (WlSignal WlrOutput)
+    , outSignalNeedsFrame :: Ptr (WlSignal WlrOutput)
+    , outSignalPrecommit :: Ptr (WlSignal WlrOutput)
+    , outSignalCommit :: Ptr (WlSignal WlrOutput)
+    , outSignalPresent :: Ptr (WlSignal WlrOutput)
+    , outSignalEnable :: Ptr (WlSignal WlrOutput)
     , outSignalMode :: Ptr (WlSignal WlrOutput)
     , outSignalScale :: Ptr (WlSignal WlrOutput)
     , outSignalTransform :: Ptr (WlSignal WlrOutput)
+    , outSignalDescription :: Ptr (WlSignal WlrOutput)
     , outSignalDestroy :: Ptr (WlSignal WlrOutput)
-    , outSignalNeedsSwap :: Ptr (WlSignal WlrOutput)
     }
 
 getOutputSignals :: Ptr WlrOutput -> OutputSignals
 getOutputSignals ptr = OutputSignals
     { outSignalFrame = #{ptr struct wlr_output, events.frame} ptr
+    , outSignalNeedsFrame = #{ptr struct wlr_output, events.needs_frame} ptr
+    , outSignalPrecommit = #{ptr struct wlr_output, events.precommit} ptr
+    , outSignalCommit = #{ptr struct wlr_output, events.commit} ptr
+    , outSignalPresent = #{ptr struct wlr_output, events.present} ptr
+    , outSignalEnable = #{ptr struct wlr_output, events.enable} ptr
     , outSignalMode = #{ptr struct wlr_output, events.mode} ptr
     , outSignalScale = #{ptr struct wlr_output, events.scale} ptr
     , outSignalTransform = #{ptr struct wlr_output, events.transform} ptr
+    , outSignalDescription = #{ptr struct wlr_output, events.description} ptr
     , outSignalDestroy = #{ptr struct wlr_output, events.destroy} ptr
-    , outSignalNeedsSwap = #{ptr struct wlr_output, events.needs_swap} ptr
     }
 
 getDataPtr :: Ptr WlrOutput -> Ptr (Ptr a)
@@ -251,11 +260,9 @@ getDataPtr = #{ptr struct wlr_output, data}
 
 getOutputBox :: Ptr WlrOutput -> IO WlrBox
 getOutputBox ptr = do
-    x :: Word32 <- #{peek struct wlr_output, lx} ptr
-    y :: Word32 <- #{peek struct wlr_output, ly} ptr
     width :: Word32 <- #{peek struct wlr_output, width} ptr
     height :: Word32 <- #{peek struct wlr_output, height} ptr
-    pure $ WlrBox (fromIntegral x) (fromIntegral y) (fromIntegral width) (fromIntegral height)
+    pure $ WlrBox 0 0 (fromIntegral width) (fromIntegral height)
 
 getOutputScale :: Ptr WlrOutput -> IO Float
 getOutputScale = #{peek struct wlr_output, scale}
@@ -266,11 +273,9 @@ setOutputScale :: Ptr WlrOutput -> Float -> IO ()
 setOutputScale = c_set_scale
 
 getOutputNeedsSwap :: Ptr WlrOutput -> IO Bool
-getOutputNeedsSwap = fmap (/= (0 :: Word8)) . #{peek struct wlr_output, needs_swap}
-
-setOutputNeedsSwap :: Ptr WlrOutput -> Bool -> IO ()
-setOutputNeedsSwap ptr val =
-    #{poke struct wlr_output, needs_swap} ptr (if val then 1 else 0 :: Word8)
+getOutputNeedsSwap ptr = do
+    val :: CInt <- #{peek struct wlr_output, pending.committed} ptr
+    pure $ (fromIntegral val) & WLR_OUTPUT_STATE_DAMAGE
 
 foreign import ccall "wlr_output_create_global" c_create_global :: Ptr WlrOutput -> IO ()
 

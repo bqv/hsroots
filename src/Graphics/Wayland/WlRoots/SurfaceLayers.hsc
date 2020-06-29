@@ -139,6 +139,7 @@ data SurfaceState = SurfaceState
     , surfaceStateDesiredHeight :: Word32
     , surfaceStateActualWidth :: Word32
     , surfaceStateActualHeight :: Word32
+    , surfaceStateLayer :: LayerShellLayer
     }
 
 foreign import ccall unsafe "wlr_layer_shell_v1_create" c_create :: Ptr DisplayServer -> IO (Ptr LayerShell)
@@ -179,14 +180,7 @@ getLayerSurfaceEvents (LayerSurface ptr) = LayerSurfaceEvents
 
 
 getLayerSurfaceLayer :: LayerSurface -> IO LayerShellLayer
-getLayerSurfaceLayer (LayerSurface ptr) = do
-    layer :: CInt <- #{peek struct wlr_layer_surface_v1, layer} ptr
-    pure $ case layer of
-        #{const ZWLR_LAYER_SHELL_V1_LAYER_BACKGROUND} -> LayerShellLayerBackground
-        #{const ZWLR_LAYER_SHELL_V1_LAYER_BOTTOM}     -> LayerShellLayerBottom
-        #{const ZWLR_LAYER_SHELL_V1_LAYER_TOP}        -> LayerShellLayerTop
-        #{const ZWLR_LAYER_SHELL_V1_LAYER_OVERLAY}    -> LayerShellLayerOverlay
-        _ -> LayerShellLayerBottom
+getLayerSurfaceLayer val = surfaceStateLayer <$> getSurfaceState val
 
 
 instance Storable SurfaceState where
@@ -204,7 +198,18 @@ instance Storable SurfaceState where
         <*> #{peek struct wlr_layer_surface_v1_state, desired_height} ptr
         <*> #{peek struct wlr_layer_surface_v1_state, actual_width} ptr
         <*> #{peek struct wlr_layer_surface_v1_state, actual_height} ptr
+        <*> getSurfaceStateLayer ptr
     poke = error "No reason to poke LayerShell SurfaceStates for now"
+
+getSurfaceStateLayer :: Ptr SurfaceState -> IO LayerShellLayer
+getSurfaceStateLayer ptr = do
+    layer :: CInt <- #{peek struct wlr_layer_surface_v1_state, layer} ptr
+    pure $ case layer of
+        #{const ZWLR_LAYER_SHELL_V1_LAYER_BACKGROUND} -> LayerShellLayerBackground
+        #{const ZWLR_LAYER_SHELL_V1_LAYER_BOTTOM}     -> LayerShellLayerBottom
+        #{const ZWLR_LAYER_SHELL_V1_LAYER_TOP}        -> LayerShellLayerTop
+        #{const ZWLR_LAYER_SHELL_V1_LAYER_OVERLAY}    -> LayerShellLayerOverlay
+        _ -> LayerShellLayerBottom
 
 getSurfaceState :: LayerSurface -> IO SurfaceState
 getSurfaceState = #{peek struct wlr_layer_surface_v1, current} . unLSS
